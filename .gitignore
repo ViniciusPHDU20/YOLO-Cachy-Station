@@ -1,0 +1,4 @@
+.venv_yolov8/
+dataset/
+*.pt
+yolov8_training_runs/
