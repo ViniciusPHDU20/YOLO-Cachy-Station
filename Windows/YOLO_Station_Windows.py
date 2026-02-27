@@ -12,9 +12,8 @@ import platform
 import re
 from datetime import datetime
 
-# --- Verificação de Segurança de Versão ---
-# No Windows, tentamos localizar o Python 3.11 se instalado globalmente, senão usamos o executável atual.
-PY_BINARY = "python" # Padrão Windows
+# --- Verificação de Segurança ---
+PY_BINARY = "python"
 if shutil.which("python3.11"):
     PY_BINARY = "python3.11"
 
@@ -30,7 +29,6 @@ def bootstrap():
 
     if missing:
         print(f"🚀 Instalando dependências base: {missing}")
-        # No Windows geralmente não precisamos de --break-system-packages
         subprocess.run([sys.executable, "-m", "pip", "install", *missing, "pyyaml", "nvidia-ml-py3"], capture_output=True)
 
 bootstrap()
@@ -40,7 +38,7 @@ from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QH
                              QProgressBar, QTabWidget, QMessageBox, QGroupBox, QLineEdit, QGridLayout)
 from PyQt6.QtCore import Qt, pyqtSignal, QObject, QTimer
 
-# --- Inteligência de Caminhos Multiplataforma ---
+# --- Inteligência de Caminhos ---
 OS_TYPE = platform.system()
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 VENV_DIR = os.path.join(SCRIPT_DIR, ".venv_yolov8")
@@ -130,7 +128,7 @@ class MainWindow(QMainWindow):
         ws_layout = QHBoxLayout(ws_group)
         self.txt_workspace = QLineEdit(self.workspace)
         self.txt_workspace.setReadOnly(True)
-        btn_browse = QPushButton("Selecionar Pasta")
+        btn_browse = QPushButton("Mudar Pasta")
         btn_browse.clicked.connect(self.browse_workspace)
         ws_layout.addWidget(self.txt_workspace); ws_layout.addWidget(btn_browse)
         layout.addWidget(ws_group)
@@ -142,17 +140,16 @@ class MainWindow(QMainWindow):
         self.setup_manage_tab()
         
         self.log_area = QTextEdit(); self.log_area.setReadOnly(True); self.log_area.setMaximumHeight(150)
-        layout.addWidget(QLabel("Terminal de Saída:")); layout.addWidget(self.log_area)
+        layout.addWidget(QLabel("Terminal:")); layout.addWidget(self.log_area)
         self.progress_bar = QProgressBar(); layout.addWidget(self.progress_bar)
 
     def setup_train_tab(self):
         tab = QWidget(); layout = QVBoxLayout(tab)
-        
         ds_group = QGroupBox("1. Dataset"); ds_layout = QHBoxLayout(ds_group)
         btn_zip = QPushButton("Importar ZIP"); btn_zip.clicked.connect(self.import_dataset)
         ds_layout.addWidget(btn_zip); layout.addWidget(ds_group)
         
-        env_group = QGroupBox("2. Ambiente Virtual"); env_layout = QVBoxLayout(env_group)
+        env_group = QGroupBox("2. Ambiente"); env_layout = QVBoxLayout(env_group)
         self.combo_gpu = QComboBox(); self.combo_gpu.addItems(["NVIDIA CUDA", "AMD DirectML", "CPU Only"])
         self.combo_mode = QComboBox(); self.combo_mode.addItems(["Padrão (Auto)", "Legacy (Xeon)"])
         self.btn_setup = QPushButton("PREPARAR AMBIENTE"); self.btn_setup.clicked.connect(self.start_setup)
@@ -172,7 +169,7 @@ class MainWindow(QMainWindow):
 
     def setup_telemetry_tab(self):
         tab = QWidget(); layout = QVBoxLayout(tab)
-        hw_group = QGroupBox("Telemetria do Sistema"); hw_layout = QGridLayout(hw_group)
+        hw_group = QGroupBox("Hardware"); hw_layout = QGridLayout(hw_group)
         self.lbl_gpu_name = QLabel("GPU: -"); self.lbl_gpu_vram = QLabel("VRAM: -")
         self.lbl_gpu_temp = QLabel("Temp: -"); self.lbl_gpu_load = QLabel("Carga: -")
         self.lbl_cpu_load = QLabel("CPU: -"); self.lbl_ram_load = QLabel("RAM: -")
@@ -180,8 +177,8 @@ class MainWindow(QMainWindow):
         hw_layout.addWidget(self.lbl_gpu_vram, 1, 0); hw_layout.addWidget(self.lbl_gpu_temp, 1, 1)
         hw_layout.addWidget(self.lbl_cpu_load, 2, 0); hw_layout.addWidget(self.lbl_ram_load, 2, 1)
         layout.addWidget(hw_group)
-        det_group = QGroupBox("Status YOLO"); det_layout = QVBoxLayout(det_group)
-        self.lbl_epoch = QLabel("Época: -"); self.lbl_map = QLabel("Precisão (mAP50): -")
+        det_group = QGroupBox("Motor Status"); det_layout = QVBoxLayout(det_group)
+        self.lbl_epoch = QLabel("Época: -"); self.lbl_map = QLabel("Precisão: -")
         det_layout.addWidget(self.lbl_epoch); det_layout.addWidget(self.lbl_map)
         layout.addWidget(det_group); layout.addStretch(); self.tabs.addTab(tab, "Monitoramento")
 
@@ -189,6 +186,15 @@ class MainWindow(QMainWindow):
         tab = QWidget(); layout = QVBoxLayout(tab)
         btn_nuke = QPushButton("LIMPAR TUDO (Reset)"); btn_nuke.setStyleSheet("color: #ff4444;"); btn_nuke.clicked.connect(self.nuke_workspace)
         layout.addWidget(btn_nuke); layout.addStretch(); self.tabs.addTab(tab, "Manutenção")
+
+    def get_windows_gpu_data(self):
+        """Telemetria Genérica via WMIC para Windows (AMD/Intel)"""
+        try:
+            cmd = "wmic path win32_VideoController get name"
+            res = subprocess.run(cmd, capture_output=True, text=True, shell=True)
+            name = res.stdout.split('\n')[1].strip()
+            return {"name": name if name else "Generic GPU", "load": "-", "vram": "-", "temp": "-"}
+        except: return None
 
     def update_telemetry(self):
         import psutil
@@ -208,13 +214,14 @@ class MainWindow(QMainWindow):
                     self.lbl_gpu_vram.setText(f"VRAM: {info.used // (1024**2)} / {info.total // (1024**2)} MB")
                     self.lbl_gpu_temp.setText(f"Temp: {temp}°C"); self.lbl_gpu_load.setText(f"Carga: {util.gpu}%")
                 except: pass
-            else: self.lbl_gpu_name.setText("NVIDIA (Aguardando ambiente...)")
+            else: self.lbl_gpu_name.setText("NVIDIA (Offline)")
         else:
-            # No Windows a telemetria AMD/DirectML requer libs específicas, mantemos genérico por enquanto
-            self.lbl_gpu_name.setText(hw)
-            self.lbl_gpu_vram.setText("-")
-            self.lbl_gpu_temp.setText("-")
-            self.lbl_gpu_load.setText("-")
+            win_gpu = self.get_windows_gpu_data()
+            if win_gpu:
+                self.lbl_gpu_name.setText(f"GPU: {win_gpu['name']}")
+                self.lbl_gpu_vram.setText("VRAM: Monitorado pelo SO")
+                self.lbl_gpu_temp.setText("-")
+                self.lbl_gpu_load.setText("-")
 
         res_file = os.path.join(self.workspace, RUNS_DIR, "train", "results.csv")
         if os.path.exists(res_file):
@@ -223,13 +230,13 @@ class MainWindow(QMainWindow):
                     lines = f.readlines()
                     if len(lines) > 1:
                         last = lines[-1].split(",")
-                        self.lbl_epoch.setText(f"Época: {last[0].strip()} (Concluída)")
+                        self.lbl_epoch.setText(f"Época: {last[0].strip()} (Finalizada)")
                         self.lbl_map.setText(f"Precisão: {last[6].strip()}")
             except: pass
 
     def log(self, text):
         ts = datetime.now().strftime("%H:%M:%S")
-        self.log_area.append(f"<span style='color: #555;'>[{ts}]</span> {text}")
+        self.log_area.append(f"[{ts}] {text}")
         self.log_area.verticalScrollBar().setValue(self.log_area.verticalScrollBar().maximum())
 
     def browse_workspace(self):
@@ -277,7 +284,6 @@ class MainWindow(QMainWindow):
                     if "Legacy" in mode: subprocess.run([PIP_BIN, "install", "numpy==1.26.4", "torch==2.1.2", "torchvision==0.16.2", "--index-url", idx], env=env)
                     else: subprocess.run([PIP_BIN, "install", "numpy==1.26.4", "torch", "torchvision", "--index-url", idx], env=env)
                 elif "AMD" in gpu:
-                    # Windows usa DirectML para AMD
                     subprocess.run([PIP_BIN, "install", "numpy==1.26.4", "torch", "torchvision", "onnxruntime-directml"], env=env)
                 else: subprocess.run([PIP_BIN, "install", "numpy==1.26.4", "torch", "--index-url", "https://download.pytorch.org/whl/cpu"], env=env)
                 self.emitter.output.emit("Finalizando dependências..."); subprocess.run([PIP_BIN, "install", "ultralytics==8.2.0", "opencv-python==4.8.1.78", "nvidia-ml-py3", "psutil"], env=env)
@@ -291,23 +297,21 @@ class MainWindow(QMainWindow):
 
     def start_training(self):
         if not os.path.exists(YOLO_BIN): QMessageBox.critical(self, "Erro", "Ambiente não pronto!"); return
-        ds_path = os.path.join(self.workspace, DATASET_DIR); yaml_f = os.path.join(ds_path, "data.yaml")
+        ds_path = os.path.join(self.workspace, DATASET_DIR).replace('\\', '/')
+        yaml_f = os.path.join(ds_path, "data.yaml").replace('\\', '/')
         if not os.path.exists(yaml_f): QMessageBox.critical(self, "Erro", "Dataset ausente!"); return
         p = {"Leve (Nano)": {"m": "yolov8n.pt", "e": 50, "i": 416, "b": 16}, "Equilibrado (Médio)": {"m": "yolov8m.pt", "e": 100, "i": 640, "b": 8}, "Pesado (Grande)": {"m": "yolov8l.pt", "e": 150, "i": 640, "b": 4}}[self.combo_profile.currentText()]
         gpu = self.combo_gpu.currentText()
-        
-        device = "cpu"
-        if "NVIDIA" in gpu: device = "0"
-        elif "AMD" in gpu: device = "dml" # DirectML no Windows
-        
-        last_w = os.path.join(self.workspace, RUNS_DIR, "train", "weights", "last.pt")
+        device = "0" if "NVIDIA" in gpu else "dml" if "AMD" in gpu else "cpu"
+        last_w = os.path.join(self.workspace, RUNS_DIR, "train", "weights", "last.pt").replace('\\', '/')
         is_res = self.chk_resume.isChecked() and os.path.exists(last_w)
         model = last_w if (is_res or os.path.exists(last_w)) else p['m']
+        runs_path = os.path.join(self.workspace, RUNS_DIR).replace('\\', '/')
         
         py_code = f"import torch; from ultralytics.nn.tasks import DetectionModel; " \
                   f"getattr(torch.serialization, 'add_safe_globals', lambda x: None)([DetectionModel]); " \
                   f"from ultralytics import YOLO; model = YOLO('{model}'); " \
-                  f"model.train(data='{yaml_f}', epochs={p['e']}, imgsz={p['i']}, batch={p['b']}, device='{device}', workers=0, amp=False, project='{os.path.join(self.workspace, RUNS_DIR)}', name='train', exist_ok=True, resume={is_res})"
+                  f"model.train(data='{yaml_f}', epochs={p['e']}, imgsz={p['i']}, batch={p['b']}, device='{device}', workers=0, amp=False, project='{runs_path}', name='train', exist_ok=True, resume={is_res})"
         
         self.btn_train.setEnabled(False); self.btn_stop.setEnabled(True)
         def task():
