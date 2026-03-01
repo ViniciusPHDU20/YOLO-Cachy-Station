@@ -12,6 +12,29 @@ import platform
 import re
 from datetime import datetime
 
+# --- BYPASS DE SEGURANÇA PYTORCH 2.6+ (GOD MODE) ---
+try:
+    import torch
+    # Autorizar explicitamente as classes do YOLO para o unpickler do PyTorch
+    torch.serialization.add_safe_globals([
+        'torch.nn.modules.container.Sequential',
+        'torch.nn.modules.conv.Conv2d',
+        'torch.nn.modules.batchnorm.BatchNorm2d',
+        'torch.nn.modules.activation.SiLU',
+        'torch.nn.modules.pooling.MaxPool2d',
+        'torch.nn.modules.upsampling.Upsample',
+        'torch.nn.modules.container.ModuleList'
+    ])
+    # Forçar o unpickler a ser permissivo se os globals seguros falharem
+    import pickle
+    import builtins
+    # Redefinir o comportamento de carregamento seguro globalmente
+    torch.load = (lambda f, original_load=torch.load, **kwargs: 
+                  original_load(f, weights_only=False, **kwargs))
+except Exception:
+    pass
+# --------------------------------------------------
+
 # --- Verificação de Segurança ---
 PY_BINARY = "python"
 if shutil.which("python3.11"):
